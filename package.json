@@ -1,0 +1,16 @@
+{
+  "name": "type2memory",
+  "version": "1.0.0",
+  "description": "Local typing + vocabulary practice app for kids, with a small local backend for persistence.",
+  "main": "server/server.js",
+  "scripts": {
+    "start": "node server/server.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "express": "^5.2.1"
+  }
+}
