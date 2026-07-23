@@ -1918,6 +1918,15 @@ let curSentencePair = null; // { en, zh } — only set when effectiveMode is 'se
 //  INIT
 // ─────────────────────────────────────────────
 async function init() {
+  if (location.protocol === 'file:') {
+    document.body.insertAdjacentHTML('afterbegin',
+      '<div style="position:fixed;top:0;left:0;right:0;z-index:9999;' +
+      'background:#c1523f;color:#fff;text-align:center;padding:10px 16px;' +
+      'font-size:.85rem;font-weight:700;">' +
+      '⚠️ 你正在直接打开这个文件，进度不会被保存！请先在项目目录运行 npm start，' +
+      '然后访问 http://localhost:3210' +
+      '</div>');
+  }
   if (typeof WORD_LIST === 'undefined') {
     document.body.innerHTML =
       '<p style="color:#c1523f;padding:48px;font-size:1.1rem">错误：找不到 assets/words.js，请确认文件存在。</p>';
