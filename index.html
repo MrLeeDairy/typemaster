@@ -934,6 +934,19 @@
       font-size: .9rem; color: var(--red); font-weight: 700;
       margin: -12px auto 20px; text-align: center;
     }
+    .dr-words-list { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+    .dr-word-chip {
+      border: 1px solid var(--border); background: var(--surface);
+      border-radius: 999px; padding: 4px 14px; font-size: .88rem;
+    }
+    .dr-word-chip .en {
+      font-family: ui-monospace, 'Cascadia Code', Consolas, monospace;
+      font-weight: 700; color: var(--cyan); margin-right: 7px;
+    }
+    .dr-word-chip .zh { color: var(--muted); }
+    .dr-word-chip.miss { border-color: var(--red); background: rgba(193,82,63,.06); }
+    .dr-word-chip.skip { border-color: var(--magenta); background: rgba(201,123,61,.08); }
+    .dr-words-legend { font-size: .75rem; color: var(--muted); text-align: center; margin-top: 8px; }
     .dl-spell-prompt { font-size: clamp(1.8rem, 6vw, 3rem); margin-bottom: 16px; }
     .dl-record-btn {
       background: var(--surface); border: 1px solid var(--red);
@@ -1205,7 +1218,7 @@
     </div>
     <div class="daily-card-cta" id="daily-card-cta">▶ 开始今日学习</div>
     <div class="daily-card-review" id="daily-card-review" style="display:none"
-      onclick="event.stopPropagation(); reviewDailyResults()">📋 查看今日错题回顾</div>
+      onclick="event.stopPropagation(); reviewDailyResults()">📋 查看今日学习回顾</div>
   </div>
 
   <div class="free-practice-label">自由练习</div>
@@ -1418,6 +1431,11 @@
   </div>
 
   <div class="dr-leaves" id="dr-leaves" style="display:none"></div>
+
+  <div id="dr-words-section" style="width:min(680px,92%);margin:0 auto 24px">
+    <div class="res-section-title">📖 今日单词</div>
+    <div class="dr-words-list" id="dr-words-list"></div>
+  </div>
 
   <div id="dr-mistakes-section" style="width:min(680px,92%);margin:8px auto 24px;display:none">
     <div class="res-section-title">📋 今日错题回顾</div>
@@ -3736,8 +3754,8 @@ function updateDailyCardUI() {
   if (ctaEl)  ctaEl.textContent = s.phase === 'done' ? '✓ 今日已完成，来复习一下？' : '▶ 继续今日学习';
   if (reviewEl) {
     const n = (s.mistakes || []).length;
-    reviewEl.style.display = n ? '' : 'none';
-    reviewEl.textContent = `📋 查看今日错题回顾（${n}）`;
+    reviewEl.style.display = '';
+    reviewEl.textContent = n ? `📋 查看今日学习回顾（错题 ${n}）` : '📋 查看今日学习回顾';
   }
 }
 
@@ -4443,6 +4461,33 @@ function renderDailyResults() {
     leavesEl.style.display = '';
   } else {
     leavesEl.style.display = 'none';
+  }
+
+  // Today's word list — red chip = had mistakes, amber chip = was skipped
+  const wl = document.getElementById('dr-words-list');
+  wl.innerHTML = '';
+  const missSet = new Set((dailyState.mistakes || []).map(m => m.word));
+  let hasMiss = false, hasSkip = false;
+  dailyState.wordList.forEach(w => {
+    const wo = words.find(x => x.word === w);
+    const skipped = dailyState.skipped.includes(w);
+    const missed  = missSet.has(w);
+    if (missed) hasMiss = true;
+    if (skipped) hasSkip = true;
+    const chip = document.createElement('span');
+    chip.className = 'dr-word-chip' + (missed ? ' miss' : '') + (skipped ? ' skip' : '');
+    chip.innerHTML = '<span class="en"></span><span class="zh"></span>';
+    chip.querySelector('.en').textContent = w;
+    chip.querySelector('.zh').textContent = wo ? wo.zh : '';
+    wl.appendChild(chip);
+  });
+  const legendBits = [];
+  if (hasMiss) legendBits.push('红框 = 出过错');
+  if (hasSkip) legendBits.push('橙框 = 学习时跳过');
+  const oldLegend = document.querySelector('.dr-words-legend');
+  if (oldLegend) oldLegend.remove();
+  if (legendBits.length) {
+    wl.insertAdjacentHTML('afterend', `<div class="dr-words-legend">${legendBits.join(' · ')}</div>`);
   }
 
   const section = document.getElementById('dr-mistakes-section');
