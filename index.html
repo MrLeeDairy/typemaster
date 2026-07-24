@@ -930,6 +930,10 @@
     #dl-input, #dl-copy-input { width: 100%; font-size: 1.2rem; }
     .dl-copy-stage { padding-top: 12px; }
     .dq-round-label { font-size: .9rem; color: var(--muted); font-weight: 700; }
+    .dr-leaves {
+      font-size: .9rem; color: var(--red); font-weight: 700;
+      margin: -12px auto 20px; text-align: center;
+    }
     .dl-spell-prompt { font-size: clamp(1.8rem, 6vw, 3rem); margin-bottom: 16px; }
     .dl-record-btn {
       background: var(--surface); border: 1px solid var(--red);
@@ -1412,6 +1416,8 @@
     <div class="res-card"><div class="res-val" id="dr-streak">0</div><div class="res-lbl">最高连击</div></div>
     <div class="res-card"><div class="res-val" id="dr-time">0</div><div class="res-lbl">今日用时(分钟)</div></div>
   </div>
+
+  <div class="dr-leaves" id="dr-leaves" style="display:none"></div>
 
   <div id="dr-mistakes-section" style="width:min(680px,92%);margin:8px auto 24px;display:none">
     <div class="res-section-title">📋 今日错题回顾</div>
@@ -2032,6 +2038,13 @@ async function init() {
       document.getElementById('kbd').classList.remove('show');
   });
 
+  window.addEventListener('blur', handleStudyLeave);
+  window.addEventListener('focus', handleStudyReturn);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') handleStudyLeave();
+    else handleStudyReturn();
+  });
+
   await loadRemoteCache(); // must resolve before anything reads mastery/vocab/history/daily data
 
   updateSidebars();
@@ -2464,6 +2477,22 @@ function showQuiz() {
   show('s-quiz');
 }
 
+// Prefer a LOCAL en-US voice: Chrome's default for en-US is often the
+// network-backed "Google US English", which goes silent when study mode
+// blocks the browser's internet access. Local (Microsoft) voices keep
+// working fully offline.
+let _localVoice = null;
+function pickLocalVoice() {
+  const voices = speechSynthesis.getVoices();
+  _localVoice = voices.find(v => v.lang.startsWith('en') && v.localService)
+             || voices.find(v => v.lang.startsWith('en'))
+             || null;
+}
+if ('speechSynthesis' in window) {
+  pickLocalVoice();
+  speechSynthesis.addEventListener('voiceschanged', pickLocalVoice);
+}
+
 function speakText(text, rate, btnIds) {
   if (!('speechSynthesis' in window)) return;
   speechSynthesis.cancel();
@@ -2471,6 +2500,7 @@ function speakText(text, rate, btnIds) {
   u.lang  = 'en-US';
   u.rate  = rate;
   u.pitch = 1.0;
+  if (_localVoice) u.voice = _localVoice;
   const btns = (btnIds || []).map(id => document.getElementById(id)).filter(Boolean);
   btns.forEach(b => b.classList.add('playing'));
   u.onend = () => btns.forEach(b => b.classList.remove('playing'));
@@ -3519,6 +3549,7 @@ function getDailyState() {
     if (s.quiz && s.quiz.round === undefined) { // back-compat: pre-round-engine sessions
       Object.assign(s.quiz, { round: 1, roundQ: 0, roundMistakes: [], reviewing: false, drillQueue: [], drillIdx: 0 });
     }
+    if (s.leaves === undefined) s.leaves = 0; // back-compat: pre-leave-tracking sessions
     return s;
   }
   return null;
@@ -3582,7 +3613,8 @@ function createDailyState() {
       round: 1, roundQ: 0, roundMistakes: [],
       reviewing: false, drillQueue: [], drillIdx: 0
     },
-    mistakes: []
+    mistakes: [],
+    leaves: 0 // times the child left the page mid-question (tab switch / other app)
   };
   saveDailyState(s);
   return s;
@@ -3729,11 +3761,13 @@ function startOrResumeDaily() {
 
 function exitDailyLearn() {
   stopDailyTicker();
+  dlRecallActive = false;
   if (dailyState) saveDailyState(dailyState);
   goVocabHome();
 }
 function exitDailyQuiz() {
   stopDailyTicker();
+  dqQuestionActive = false;
   if (dailyState) saveDailyState(dailyState);
   goVocabHome();
 }
@@ -3742,6 +3776,7 @@ function loadDailyWord() {
   hideDailyOvertimeUI();
   dailyOvertime  = false;
   dailyWordDone  = false;
+  dlRecallActive = false;
   dailyState.perWordElapsedMs = 0;
 
   if (dailyState.wordIdx >= dailyState.wordList.length) {
@@ -3848,6 +3883,7 @@ function dlShowRecallStage() {
   inp.className = 'type-input';
   inp.disabled = false;
   inp.focus();
+  dlRecallActive = true;
 }
 
 function dlOnInput() {
@@ -3855,6 +3891,7 @@ function dlOnInput() {
   const typed  = inp.value;
   const target = dailyCurWord.word;
   if (typed === target) {
+    dlRecallActive = false;
     inp.className = 'type-input good';
     inp.disabled  = true;
     recordMastery(dailyCurWord.word, 'word', true);
@@ -4063,6 +4100,7 @@ function nextDailyQuizQuestion() {
   dqWrongCount = 0;
   hideAllDqStages();
   const type = pickDqType();
+  dqCurType = type;
   if (type === 'spell') {
     showDqSpellStage();
   } else if (type === 'record') {
@@ -4071,6 +4109,7 @@ function nextDailyQuizQuestion() {
     curDqQ = vqMeaningQuestion(curDq);
     renderDailyQuizChoice();
   }
+  dqQuestionActive = (type !== 'record'); // record stage has nothing to look up
   updateDqRoundLabel();
   document.getElementById('dq-streak').textContent = '🔥 ' + dailyState.quiz.streak;
 }
@@ -4118,6 +4157,51 @@ function advanceDqRound() {
   setTimeout(nextDailyQuizQuestion, 1300);
 }
 
+// ── Leave detection (anti-cheat) ───────────────────────────────────────────
+// Switching tabs / focusing another app (e.g. a translator) while a quiz
+// question is open immediately scores that question as wrong and queues the
+// word for the round review — so looking up the answer is pointless. Every
+// leave is counted and shown to the parent on the daily results screen.
+// During the learn phase's no-peeking recall stage, leaves are counted and
+// called out, but the word isn't auto-failed (he's still learning it).
+let dqQuestionActive = false;
+let dqCurType = 'spell';
+let dlRecallActive = false;
+let pendingLeaveNotice = null; // toast text queued for when the child comes back
+
+function handleStudyLeave() {
+  if (dailyManuallyPaused) return; // a sanctioned pause isn't cheating
+  if (dqQuestionActive && curDq) {
+    dqQuestionActive = false;
+    dailyState.leaves++;
+    const dim = dqCurType === 'spell' ? 'word' : 'quiz';
+    dailyState.quiz.total++;
+    dailyState.quiz.streak = 0;
+    recordMastery(curDq.word, dim, false);
+    dailyState.mistakes.push({ word: curDq.word, zh: curDq.zh, dim, sub: '离开页面', ts: Date.now() });
+    dailyState.quiz.roundMistakes.push(curDq.word);
+    addToWrongBook(curDq.word, curDq.zh, dim);
+    saveDailyState(dailyState);
+    pendingLeaveNotice = '离开页面这道题就算错咯，换一题！';
+  } else if (dlRecallActive && dailyState) {
+    dlRecallActive = false;
+    dailyState.leaves++;
+    saveDailyState(dailyState);
+    pendingLeaveNotice = '默写的时候不要离开页面哦';
+  }
+}
+
+function handleStudyReturn() {
+  if (!pendingLeaveNotice) return;
+  const notice = pendingLeaveNotice;
+  pendingLeaveNotice = null;
+  showCelebration(notice); // reuse the toast; the message itself is the telling-off
+  playWrongSound();
+  if (dailyState && dailyState.phase === 'quiz') {
+    setTimeout(nextDailyQuizQuestion, 900);
+  }
+}
+
 // ── Meaning multiple-choice ─────────────────────────────
 function renderDailyQuizChoice() {
   document.getElementById('dq-choice-stage').style.display = '';
@@ -4139,6 +4223,7 @@ function renderDailyQuizChoice() {
 }
 
 function answerDailyQuizChoice(el, isOk) {
+  dqQuestionActive = false; // answered in time — leaving afterwards is fine
   dailyState.quiz.total++;
   recordMastery(curDq.word, curDqQ.dim, isOk);
   if (isOk) {
@@ -4200,6 +4285,7 @@ function dqSpellKeydown(e) {
   }
 
   if (isOk) {
+    dqQuestionActive = false;
     inp.className = 'type-input good';
     inp.disabled  = true;
     showCelebration();
@@ -4220,6 +4306,7 @@ function dqSpellKeydown(e) {
     if (dqWrongCount >= 3) {
       // Three failed tries: reveal the correct spelling, then move on —
       // this word is queued for copying practice at the round review.
+      dqQuestionActive = false;
       inp.value = curDq.word;
       inp.className = 'type-input good';
       inp.disabled = true;
@@ -4349,6 +4436,14 @@ function renderDailyResults() {
   document.getElementById('dr-acc').textContent = acc + '%';
   document.getElementById('dr-streak').textContent = dailyState.quiz.bestStreak;
   document.getElementById('dr-time').textContent = Math.round(dailyState.elapsedMs / 60000);
+
+  const leavesEl = document.getElementById('dr-leaves');
+  if (dailyState.leaves > 0) {
+    leavesEl.textContent = `⚠️ 练习中途离开页面 ${dailyState.leaves} 次（切换到了别的窗口或标签页）`;
+    leavesEl.style.display = '';
+  } else {
+    leavesEl.style.display = 'none';
+  }
 
   const section = document.getElementById('dr-mistakes-section');
   const wrap    = document.getElementById('dr-mistakes-list');

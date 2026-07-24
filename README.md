@@ -88,6 +88,26 @@ time you run the server). This means:
 `data/store.json` is not committed to this repository (see `.gitignore`) —
 it's personal practice data, not project source.
 
+## Study mode (focus lockdown)
+
+The app is fully local, so it works with the internet cut off. To stop a
+child from looking up answers mid-quiz:
+
+- **`tools/study-mode-on.bat`** (run as parent; auto-elevates) — adds
+  Windows Firewall rules blocking every installed browser's internet
+  access (localhost is unaffected), makes sure the server is running, and
+  opens the app fullscreen in Chrome kiosk mode.
+- **`tools/study-mode-off.bat`** — removes those rules, restoring normal
+  browsing.
+
+The app also detects tab/window switches during an active quiz question:
+the question is immediately scored wrong (looking up the answer is
+pointless), the word is queued for the round review, and the number of
+leaves is shown on the daily results screen for the parent.
+
+Note: this assumes the child's Windows account is not an administrator —
+an admin can delete firewall rules.
+
 ## Adding new words
 
 Edit `words.md` and ask for a re-import — new words get deduplicated
