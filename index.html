@@ -927,7 +927,9 @@
     .dl-type-prompt, .dl-record-prompt, .dl-meaning-prompt {
       font-size: .92rem; color: var(--muted); margin-bottom: 12px;
     }
-    #dl-input { width: 100%; font-size: 1.2rem; }
+    #dl-input, #dl-copy-input { width: 100%; font-size: 1.2rem; }
+    .dl-copy-stage { padding-top: 12px; }
+    .dq-round-label { font-size: .9rem; color: var(--muted); font-weight: 700; }
     .dl-spell-prompt { font-size: clamp(1.8rem, 6vw, 3rem); margin-bottom: 16px; }
     .dl-record-btn {
       background: var(--surface); border: 1px solid var(--red);
@@ -1271,6 +1273,17 @@
 
     <div class="zh-prompt dl-spell-prompt" id="dl-spell-prompt" style="display:none"></div>
 
+    <!-- Copy stage: word stays visible, copy it out 5 times before the
+         no-peeking recall test -->
+    <div class="dl-copy-stage" id="dl-copy-stage" style="display:none">
+      <div class="dl-type-prompt">先把这个单词抄 5 遍，记住它的样子</div>
+      <div class="dq-drill-progress" id="dl-copy-progress">第 1 / 5 遍</div>
+      <input class="type-input" id="dl-copy-input" type="text" autocomplete="off" autocorrect="off"
+        autocapitalize="off" spellcheck="false" placeholder="输入后按回车…"
+        onpaste="return false" ondrop="return false" oncopy="return false" oncut="return false"
+        onkeydown="dlCopyKeydown(event)">
+    </div>
+
     <div class="dl-type-stage" id="dl-type-stage" style="display:none">
       <div class="dl-type-prompt">根据中文意思，拼出这个单词</div>
       <input class="type-input" id="dl-input" type="text" autocomplete="off" autocorrect="off"
@@ -1323,7 +1336,10 @@
     <div class="daily-hud-bar"><div class="daily-hud-fill" id="daily-quiz-hud-fill"></div></div>
   </div>
 
-  <div class="vq-top"><span class="vq-streak" id="dq-streak">🔥 0</span></div>
+  <div class="vq-top">
+    <span class="dq-round-label" id="dq-round">第 1 轮 · 1/15</span>
+    <span class="vq-streak" id="dq-streak">🔥 0</span>
+  </div>
 
   <!-- Meaning multiple-choice stage -->
   <div id="dq-choice-stage" style="display:none">
@@ -3500,6 +3516,9 @@ function getDailyState() {
   const s = remoteGet('daily');
   if (s && s.date === todayStr()) {
     if (!s.mistakes) s.mistakes = []; // back-compat with sessions saved before mistake tracking existed
+    if (s.quiz && s.quiz.round === undefined) { // back-compat: pre-round-engine sessions
+      Object.assign(s.quiz, { round: 1, roundQ: 0, roundMistakes: [], reviewing: false, drillQueue: [], drillIdx: 0 });
+    }
     return s;
   }
   return null;
@@ -3555,7 +3574,14 @@ function createDailyState() {
     elapsedMs: 0,
     perWordElapsedMs: 0,
     skipped: [],
-    quiz: { correct: 0, total: 0, streak: 0, bestStreak: 0 },
+    quiz: {
+      correct: 0, total: 0, streak: 0, bestStreak: 0,
+      // Round engine: round 1 tests exactly today's words once each; every
+      // later round is 30 weighted questions. Between rounds the child
+      // drills every word missed that round before testing continues.
+      round: 1, roundQ: 0, roundMistakes: [],
+      reviewing: false, drillQueue: [], drillIdx: 0
+    },
     mistakes: []
   };
   saveDailyState(s);
@@ -3753,6 +3779,7 @@ function loadDailyWord() {
   document.getElementById('dl-word-row').style.display    = '';
   document.getElementById('dl-detail').style.display      = 'none';
   document.getElementById('dl-spell-prompt').style.display = 'none';
+  document.getElementById('dl-copy-stage').style.display   = 'none';
   document.getElementById('dl-type-stage').style.display   = 'none';
   document.getElementById('dl-record-stage').style.display = 'none';
   document.getElementById('dl-meaning-stage').style.display = 'none';
@@ -3770,13 +3797,48 @@ function dlReveal() {
   document.getElementById('dl-confirm-btn').style.display  = '';
 }
 
-// Stage: recall the spelling from the Chinese meaning alone — the English
-// word (and its speak button) is hidden so this is a real dictation test,
-// not a copy exercise.
+// Stage: copy the word out 5 times while it's still visible — deliberate
+// spelling practice comes BEFORE the recall test.
+let dlCopyRemaining = 5;
+
 function dlConfirmMemorized() {
   document.getElementById('dl-detail').style.display       = 'none';
   document.getElementById('dl-confirm-btn').style.display  = 'none';
-  document.getElementById('dl-word-row').style.display      = 'none';
+  dlCopyRemaining = 5;
+  document.getElementById('dl-copy-progress').textContent = '第 1 / 5 遍';
+  document.getElementById('dl-copy-stage').style.display  = '';
+  const inp = document.getElementById('dl-copy-input');
+  inp.value = ''; inp.className = 'type-input'; inp.disabled = false; inp.focus();
+}
+
+function dlCopyKeydown(e) {
+  if (e.key !== 'Enter') return;
+  const inp = document.getElementById('dl-copy-input');
+  if (inp.value.trim() === dailyCurWord.word) {
+    dlCopyRemaining--;
+    inp.className = 'type-input good';
+    if (dlCopyRemaining <= 0) {
+      showCelebration('抄完了！现在不看单词试试');
+      setTimeout(dlShowRecallStage, 900);
+    } else {
+      document.getElementById('dl-copy-progress').textContent = `第 ${5 - dlCopyRemaining + 1} / 5 遍`;
+      inp.value = '';
+      inp.className = 'type-input';
+      inp.focus();
+    }
+  } else {
+    inp.className = 'type-input fail';
+    playWrongSound();
+    inp.value = '';
+  }
+}
+
+// Stage: recall the spelling from the Chinese meaning alone — the English
+// word (and its speak button) is hidden so this is a real dictation test,
+// not a copy exercise.
+function dlShowRecallStage() {
+  document.getElementById('dl-copy-stage').style.display = 'none';
+  document.getElementById('dl-word-row').style.display    = 'none';
   const promptEl = document.getElementById('dl-spell-prompt');
   promptEl.textContent = dailyCurWord.zh;
   promptEl.style.display = '';
@@ -3913,12 +3975,15 @@ function dlSkipWord() {
 }
 
 // ─────────────────────────────────────────────
-//  DAILY QUIZ PHASE — loops on today's words + recent review pool until the
-//  clock runs out. Three question types: spelling (majority weight, typed
-//  freehand + Enter to submit — 3+ wrong submits triggers a 5x write drill),
-//  record-and-compare (repeat the pronunciation aloud), and a multiple-choice
-//  meaning check. No cloze/sentence-choice questions — too many of those were
-//  just confusing traps rather than useful checks.
+//  DAILY QUIZ PHASE — round-based, until the clock runs out:
+//    Round 1  = today's words exactly once each (the real "test of the day")
+//    Round 2+ = 30 questions, weighted sampling (today's words 3x weight)
+//  Wrong answers are NOT drilled immediately — they're collected per round,
+//  and at each round boundary the child copies every missed word out
+//  (5x, or 10x for repeat offenders in the wrong book) before the next
+//  round starts. Reviews always run to completion even if the clock
+//  expires mid-review; the time check only gates new test questions.
+//  Question types: spelling (majority), record-and-compare, meaning choice.
 // ─────────────────────────────────────────────
 let curDq = null, curDqQ = null;
 let dqWrongCount = 0, dqAnsweredThisQuestion = false, dqDrillRemaining = 0, dqDrillTotal = 5;
@@ -3962,10 +4027,39 @@ function hideAllDqStages() {
   });
 }
 
+function dqRoundSize() {
+  return dailyState.quiz.round === 1 ? dailyState.wordList.length : 30;
+}
+
+function updateDqRoundLabel() {
+  const q = dailyState.quiz;
+  const el = document.getElementById('dq-round');
+  if (q.reviewing) {
+    el.textContent = `第 ${q.round} 轮 · 错题回顾 ${Math.min(q.drillIdx + 1, q.drillQueue.length)}/${q.drillQueue.length}`;
+  } else {
+    el.textContent = `第 ${q.round} 轮 · ${Math.min(q.roundQ, dqRoundSize())}/${dqRoundSize()}`;
+  }
+}
+
 function nextDailyQuizQuestion() {
-  if (!dailyState || dailyState.elapsedMs >= DAILY_TOTAL_MS) { finishDailySession(); return; }
-  const { pool, weights } = dailyQuizPool();
-  curDq = pickWeighted(pool, weights, 1)[0];
+  if (!dailyState) return;
+  const q = dailyState.quiz;
+
+  if (q.reviewing) { nextRoundDrill(); return; }          // resume mid-review (e.g. after reload)
+  if (q.roundQ >= dqRoundSize()) { beginRoundReview(); return; }
+  if (dailyState.elapsedMs >= DAILY_TOTAL_MS) { finishDailySession(); return; }
+
+  q.roundQ++;
+  if (q.round === 1) {
+    // Round 1: today's words in their stored order, one question each.
+    curDq = words.find(w => w.word === dailyState.wordList[q.roundQ - 1]) || null;
+    if (!curDq) { nextDailyQuizQuestion(); return; }
+  } else {
+    const { pool, weights } = dailyQuizPool();
+    curDq = pickWeighted(pool, weights, 1)[0];
+  }
+  saveDailyState(dailyState);
+
   dqWrongCount = 0;
   hideAllDqStages();
   const type = pickDqType();
@@ -3977,7 +4071,51 @@ function nextDailyQuizQuestion() {
     curDqQ = vqMeaningQuestion(curDq);
     renderDailyQuizChoice();
   }
+  updateDqRoundLabel();
   document.getElementById('dq-streak').textContent = '🔥 ' + dailyState.quiz.streak;
+}
+
+// ── Round boundary: drill every word missed this round, then move on ───────
+function beginRoundReview() {
+  const q = dailyState.quiz;
+  q.drillQueue = [...new Set(q.roundMistakes)];
+  q.roundMistakes = [];
+  q.drillIdx = 0;
+  if (!q.drillQueue.length) {
+    showCelebration(q.round === 1 ? '第一轮全对，太厉害了！' : '本轮全对，太厉害了！');
+    advanceDqRound();
+    return;
+  }
+  q.reviewing = true;
+  saveDailyState(dailyState);
+  nextRoundDrill();
+}
+
+function nextRoundDrill() {
+  const q = dailyState.quiz;
+  if (q.drillIdx >= q.drillQueue.length) {
+    q.reviewing = false;
+    q.drillQueue = [];
+    showCelebration('错题都消化完了！继续下一轮');
+    advanceDqRound();
+    return;
+  }
+  curDq = words.find(w => w.word === q.drillQueue[q.drillIdx]);
+  if (!curDq) { q.drillIdx++; saveDailyState(dailyState); nextRoundDrill(); return; }
+  const repeatOffender = (getWrongBook()[curDq.word]?.count || 0) >= 3;
+  startDqWriteDrill(
+    repeatOffender ? 10 : 5,
+    `错题回顾 ${q.drillIdx + 1} / ${q.drillQueue.length} —— 照着写 ${repeatOffender ? 10 : 5} 遍`
+  );
+  updateDqRoundLabel();
+}
+
+function advanceDqRound() {
+  const q = dailyState.quiz;
+  q.round++;
+  q.roundQ = 0;
+  saveDailyState(dailyState);
+  setTimeout(nextDailyQuizQuestion, 1300);
 }
 
 // ── Meaning multiple-choice ─────────────────────────────
@@ -4016,6 +4154,7 @@ function answerDailyQuizChoice(el, isOk) {
       word: curDq.word, zh: curDq.zh, dim: curDqQ.dim, sub: curDqQ.sub, ts: Date.now()
     });
     addToWrongBook(curDq.word, curDq.zh, curDqQ.dim);
+    dailyState.quiz.roundMistakes.push(curDq.word); // drilled at the round boundary
   }
   document.querySelectorAll('#dq-opts .opt').forEach(o => { o.onclick = null; });
   el.classList.add(isOk ? 'ok' : 'no');
@@ -4026,17 +4165,7 @@ function answerDailyQuizChoice(el, isOk) {
   }
   saveDailyState(dailyState);
   document.getElementById('dq-streak').textContent = '🔥 ' + dailyState.quiz.streak;
-  if (isOk) {
-    setTimeout(nextDailyQuizQuestion, 1100);
-  } else {
-    // Immediate reinforcement: don't move on — copy the word out first.
-    // Words that keep landing in the wrong book get the longer 10x drill.
-    const repeatOffender = (getWrongBook()[curDq.word]?.count || 0) >= 3;
-    setTimeout(() => startDqWriteDrill(
-      repeatOffender ? 10 : 5,
-      repeatOffender ? '这个词老是出错哦 —— 认真写 10 遍' : null
-    ), 1400);
-  }
+  setTimeout(nextDailyQuizQuestion, isOk ? 1100 : 1600); // wrong answers get a bit longer to see the correct one
 }
 
 // ── Spelling: type from the Chinese meaning, Enter to submit ───────────────
@@ -4083,12 +4212,23 @@ function dqSpellKeydown(e) {
     dqWrongCount++;
     playWrongSound();
     dailyState.mistakes.push({ word: curDq.word, zh: curDq.zh, dim: 'word', sub: '拼写', ts: Date.now() });
-    if (dqWrongCount === 1) addToWrongBook(curDq.word, curDq.zh, 'word'); // once per question, not per retry
+    if (dqWrongCount === 1) { // once per question, not per retry
+      addToWrongBook(curDq.word, curDq.zh, 'word');
+      dailyState.quiz.roundMistakes.push(curDq.word); // drilled at the round boundary
+    }
     saveDailyState(dailyState);
-    document.getElementById('dq-spell-wrongcount').textContent = `已错 ${dqWrongCount} 次`;
     if (dqWrongCount >= 3) {
-      startDqWriteDrill(5, '拼不出来没关系 —— 看着正确拼写，照着写 5 遍');
+      // Three failed tries: reveal the correct spelling, then move on —
+      // this word is queued for copying practice at the round review.
+      inp.value = curDq.word;
+      inp.className = 'type-input good';
+      inp.disabled = true;
+      document.getElementById('dq-spell-wrongcount').textContent =
+        `正确拼写是「${curDq.word}」—— 记一下，轮末回顾时要写它哦`;
+      speakWord(curDq.word);
+      setTimeout(nextDailyQuizQuestion, 2400);
     } else {
+      document.getElementById('dq-spell-wrongcount').textContent = `已错 ${dqWrongCount} 次`;
       inp.value = '';
     }
   }
@@ -4123,7 +4263,13 @@ function dqDrillKeydown(e) {
       markWrongBookDrilled(curDq.word);
       showCelebration('写完啦，真棒！');
       speakWord(curDq.word);
-      setTimeout(nextDailyQuizQuestion, 1000);
+      if (dailyState.quiz.reviewing) {
+        dailyState.quiz.drillIdx++;
+        saveDailyState(dailyState);
+        setTimeout(nextRoundDrill, 1000);
+      } else {
+        setTimeout(nextDailyQuizQuestion, 1000);
+      }
     } else {
       document.getElementById('dq-drill-progress').textContent = `第 ${dqDrillTotal - dqDrillRemaining + 1} / ${dqDrillTotal} 遍`;
       inp.value = '';
