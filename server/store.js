@@ -9,16 +9,19 @@ const path = require('path');
 const DATA_DIR  = path.join(__dirname, '..', 'data');
 const DATA_FILE = path.join(DATA_DIR, 'store.json');
 
-// Mirrors the four localStorage keys the app used to read/write directly:
-//   history -> typemaster_v1          (typing session history, last 100)
-//   mastery -> typemaster_mastery_v1  (per-word 4-dimension mastery)
-//   vocab   -> typemaster_vocab_v1    (flashcard rating / times shown)
-//   daily   -> typemaster_daily_v1    (today's daily-plan session state)
+// Mirrors the four localStorage keys the app used to read/write directly,
+// plus newer server-only keys:
+//   history   -> typemaster_v1          (typing session history, last 100)
+//   mastery   -> typemaster_mastery_v1  (per-word 4-dimension mastery)
+//   vocab     -> typemaster_vocab_v1    (flashcard rating / times shown)
+//   daily     -> typemaster_daily_v1    (today's daily-plan session state)
+//   wrongbook -> (no legacy key)        (cumulative cross-day mistake book)
 const DEFAULTS = {
   history: [],
   mastery: {},
   vocab: {},
-  daily: null
+  daily: null,
+  wrongbook: {}
 };
 
 const ALLOWED_KEYS = Object.keys(DEFAULTS);

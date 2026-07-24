@@ -949,6 +949,33 @@
     .dl-meaning-stage .opts { width: 100%; }
     .dq-wrongcount { font-size: .85rem; color: var(--red); margin-top: 10px; min-height: 1.2em; }
     .dq-drill-progress { font-size: .95rem; color: var(--muted); margin-bottom: 12px; }
+
+    /* Wrong book */
+    .wb-count-badge {
+      margin-top: 10px; font-size: .85rem; font-weight: 700;
+      color: var(--red);
+    }
+    .wb-list { width: min(560px, 92%); }
+    .wb-row {
+      display: flex; align-items: center; gap: 12px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 12px 16px; margin-bottom: 10px;
+    }
+    .wb-row-word { font-family: ui-monospace, 'Cascadia Code', Consolas, monospace; font-weight: 700; font-size: 1.05rem; color: var(--cyan); }
+    .wb-row-zh   { color: var(--muted); font-size: .9rem; flex: 1; }
+    .wb-row-meta { font-size: .78rem; color: var(--muted); white-space: nowrap; text-align: right; }
+    .wb-row-meta b { color: var(--red); }
+    .wb-row .btn-sm { padding: 5px 12px; font-size: .8rem; }
+    .wb-row-del {
+      background: none; border: none; cursor: pointer;
+      color: var(--muted); font-size: 1rem; padding: 4px;
+    }
+    .wb-row-del:hover { color: var(--red); }
+    .wb-drill { display: flex; flex-direction: column; align-items: center; }
+    #wb-drill-input { width: min(420px, 90%); text-align: center; }
+    #s-wrongbook { justify-content: flex-start; padding-top: 48px; }
     #dq-spell-stage, #dq-drill-stage, #dq-record-stage { display: flex; flex-direction: column; align-items: center; }
     #dq-spell-input, #dq-drill-input { width: min(420px, 90%); text-align: center; }
 
@@ -1199,6 +1226,12 @@
       </select>
       <button class="btn-sm" onclick="startVQuiz()">开始测验 ▶</button>
     </div>
+    <div class="portal-card portal-card-sm clickable" onclick="goWrongBook()">
+      <div class="portal-ico">📕</div>
+      <h2>错题集</h2>
+      <p>Wrong Book<br>累计出错的单词都在这里</p>
+      <div class="wb-count-badge" id="wb-count-badge">0 个词</div>
+    </div>
   </div>
 </div>
 
@@ -1313,9 +1346,14 @@
     <div class="dq-wrongcount" id="dq-spell-wrongcount"></div>
   </div>
 
-  <!-- Write-drill remediation: triggered after too many wrong spelling submits -->
+  <!-- Write-drill remediation: any quiz mistake lands here — the correct
+       spelling stays visible while the child copies it out -->
   <div id="dq-drill-stage" style="display:none">
-    <div class="dl-record-prompt">这个词写错太多次啦，我们来巩固一下 —— 写 5 遍</div>
+    <div class="dl-record-prompt" id="dq-drill-title">来巩固一下 —— 照着写 5 遍</div>
+    <div class="fc-word-row">
+      <div class="fc-word" id="dq-drill-word"></div>
+      <button class="speak-btn" onclick="speakWord(curDq.word)">🔊</button>
+    </div>
     <div class="zh-prompt dl-spell-prompt" id="dq-drill-prompt"></div>
     <div class="dq-drill-progress" id="dq-drill-progress">第 1 / 5 遍</div>
     <input class="type-input" id="dq-drill-input" type="text" autocomplete="off" autocorrect="off"
@@ -1434,6 +1472,35 @@
   <button class="btn" onclick="goVocabHome()">返回 · BACK</button>
 </div>
 
+<!-- ══ WRONG BOOK (错题集) ══ -->
+<div class="screen" id="s-wrongbook">
+  <button class="home-btn" onclick="goVocabHome()">← 返回</button>
+
+  <div class="logo" style="font-size:clamp(1.8rem,5vw,3rem)">错题集</div>
+  <div class="tagline">WRONG BOOK</div>
+  <div class="divider"></div>
+
+  <div class="wb-list" id="wb-list">
+    <div class="sb-empty">还没有错题，太棒了！</div>
+  </div>
+
+  <!-- Inline copy-drill for a single wrong-book word -->
+  <div class="wb-drill" id="wb-drill" style="display:none">
+    <div class="dl-record-prompt" id="wb-drill-title">照着写 5 遍</div>
+    <div class="fc-word-row">
+      <div class="fc-word" id="wb-drill-word"></div>
+      <button class="speak-btn" onclick="speakWord(wbDrillWord.word)">🔊</button>
+    </div>
+    <div class="zh-prompt dl-spell-prompt" id="wb-drill-zh"></div>
+    <div class="dq-drill-progress" id="wb-drill-progress">第 1 / 5 遍</div>
+    <input class="type-input" id="wb-drill-input" type="text" autocomplete="off" autocorrect="off"
+      autocapitalize="off" spellcheck="false" placeholder="输入后按回车…"
+      onpaste="return false" ondrop="return false" oncopy="return false" oncut="return false"
+      onkeydown="wbDrillKeydown(event)">
+    <button class="btn-sm" style="margin-top:14px" onclick="exitWbDrill()">返回列表</button>
+  </div>
+</div>
+
 <!-- ══ KEYBOARD OVERLAY ══ -->
 <div id="kbd">
   <div class="kb-rows" id="kb-rows"></div>
@@ -1452,7 +1519,7 @@
 //  it; if the backend is unreachable the app still runs off the cache, it
 //  just won't survive a reload until the server comes back.
 // ─────────────────────────────────────────────
-const _remoteCache = { history: [], mastery: {}, vocab: {}, daily: null };
+const _remoteCache = { history: [], mastery: {}, vocab: {}, daily: null, wrongbook: {} };
 
 async function loadRemoteCache() {
   const keys = Object.keys(_remoteCache);
@@ -1954,6 +2021,7 @@ async function init() {
   updateSidebars();
   updateMilestoneUI();
   updateDailyCardUI();
+  updateWbBadge();
 }
 
 // ─────────────────────────────────────────────
@@ -2020,6 +2088,7 @@ function goVocabHome() {
   show('s-vocab-home');
   updateMilestoneUI();
   updateDailyCardUI();
+  updateWbBadge();
 }
 
 // ─────────────────────────────────────────────
@@ -2961,6 +3030,130 @@ function saveVocabData(v) {
   remoteSet('vocab', v);
 }
 
+// ─────────────────────────────────────────────
+//  WRONG BOOK (错题集) — cumulative, cross-day record of every word the
+//  child got wrong in any quiz interaction. Unlike dailyState.mistakes
+//  (which resets each day and powers the daily recap), this persists until
+//  a parent removes entries manually from the wrong-book screen.
+// ─────────────────────────────────────────────
+function getWrongBook() {
+  return remoteGet('wrongbook') || {};
+}
+
+function addToWrongBook(word, zh, dim) {
+  const wb = getWrongBook();
+  if (!wb[word]) wb[word] = { word, zh, count: 0, dims: {}, lastTs: 0, drilled: 0 };
+  wb[word].count++;
+  wb[word].dims[dim] = (wb[word].dims[dim] || 0) + 1;
+  wb[word].lastTs = Date.now();
+  remoteSet('wrongbook', wb);
+}
+
+function markWrongBookDrilled(word) {
+  const wb = getWrongBook();
+  if (wb[word]) {
+    wb[word].drilled = (wb[word].drilled || 0) + 1;
+    remoteSet('wrongbook', wb);
+  }
+}
+
+function removeFromWrongBook(word) {
+  const wb = getWrongBook();
+  delete wb[word];
+  remoteSet('wrongbook', wb);
+}
+
+// ── Wrong-book screen ────────────────────────
+let wbDrillWord = null, wbDrillRemaining = 0, wbDrillTotal = 5;
+
+function updateWbBadge() {
+  const el = document.getElementById('wb-count-badge');
+  if (el) el.textContent = Object.keys(getWrongBook()).length + ' 个词';
+}
+
+function goWrongBook() {
+  exitWbDrill();
+  show('s-wrongbook');
+}
+
+function renderWrongBook() {
+  const listEl = document.getElementById('wb-list');
+  const entries = Object.values(getWrongBook()).sort((a, b) => b.count - a.count);
+  if (!entries.length) {
+    listEl.innerHTML = '<div class="sb-empty">还没有错题，太棒了！</div>';
+    return;
+  }
+  listEl.innerHTML = '';
+  entries.forEach(e => {
+    const dims = Object.entries(e.dims || {})
+      .map(([d, n]) => (DIM_LABEL[d] || d) + '×' + n).join(' · ');
+    const date = new Date(e.lastTs);
+    const dateStr = (date.getMonth() + 1) + '/' + date.getDate();
+    const row = document.createElement('div');
+    row.className = 'wb-row';
+    row.innerHTML =
+      `<span class="wb-row-word"></span>` +
+      `<span class="wb-row-zh"></span>` +
+      `<span class="wb-row-meta"><b>${e.count}次</b> · ${dims}<br>最近 ${dateStr} · 已强化${e.drilled || 0}轮</span>` +
+      `<button class="btn-sm">练一练</button>` +
+      `<button class="wb-row-del" title="移出错题集">✕</button>`;
+    row.querySelector('.wb-row-word').textContent = e.word;
+    row.querySelector('.wb-row-zh').textContent   = e.zh;
+    row.querySelector('.btn-sm').onclick     = () => startWbDrill(e.word);
+    row.querySelector('.wb-row-del').onclick = () => { removeFromWrongBook(e.word); renderWrongBook(); updateWbBadge(); };
+    listEl.appendChild(row);
+  });
+}
+
+function startWbDrill(word) {
+  const e = getWrongBook()[word];
+  if (!e) return;
+  wbDrillWord = { word: e.word, zh: e.zh };
+  wbDrillTotal = e.count >= 3 ? 10 : 5;
+  wbDrillRemaining = wbDrillTotal;
+  document.getElementById('wb-list').style.display  = 'none';
+  document.getElementById('wb-drill').style.display = '';
+  document.getElementById('wb-drill-title').textContent = `照着写 ${wbDrillTotal} 遍`;
+  document.getElementById('wb-drill-word').textContent = e.word;
+  document.getElementById('wb-drill-zh').textContent   = e.zh;
+  document.getElementById('wb-drill-progress').textContent = `第 1 / ${wbDrillTotal} 遍`;
+  const inp = document.getElementById('wb-drill-input');
+  inp.value = ''; inp.className = 'type-input'; inp.disabled = false; inp.focus();
+  speakWord(e.word);
+}
+
+function wbDrillKeydown(e) {
+  if (e.key !== 'Enter') return;
+  const inp = document.getElementById('wb-drill-input');
+  if (inp.value.trim() === wbDrillWord.word) {
+    wbDrillRemaining--;
+    inp.className = 'type-input good';
+    if (wbDrillRemaining <= 0) {
+      markWrongBookDrilled(wbDrillWord.word);
+      showCelebration('写完啦，真棒！');
+      speakWord(wbDrillWord.word);
+      setTimeout(exitWbDrill, 1000);
+    } else {
+      document.getElementById('wb-drill-progress').textContent = `第 ${wbDrillTotal - wbDrillRemaining + 1} / ${wbDrillTotal} 遍`;
+      inp.value = '';
+      inp.className = 'type-input';
+      inp.focus();
+    }
+  } else {
+    inp.className = 'type-input fail';
+    playWrongSound();
+    inp.value = '';
+  }
+}
+
+function exitWbDrill() {
+  wbDrillWord = null;
+  document.getElementById('wb-drill').style.display = 'none';
+  document.getElementById('wb-list').style.display  = '';
+  renderWrongBook();
+  updateWbBadge();
+}
+
 // Called whenever a flashcard is shown — marks the word as "engaged with"
 // even before the child rates it, so it counts toward the milestone.
 function touchVocabWord(word) {
@@ -3681,6 +3874,7 @@ function dlShowMeaningQuiz() {
 
 function dlAnswerMeaning(el, isOk) {
   recordMastery(dailyCurWord.word, 'quiz', isOk);
+  if (!isOk) addToWrongBook(dailyCurWord.word, dailyCurWord.zh, 'quiz');
   document.querySelectorAll('#dl-meaning-opts .opt').forEach(o => { o.onclick = null; });
   el.classList.add(isOk ? 'ok' : 'no');
   if (isOk) {
@@ -3712,6 +3906,7 @@ function dlNextWord() {
 
 function dlSkipWord() {
   dailyState.skipped.push(dailyCurWord.word);
+  addToWrongBook(dailyCurWord.word, dailyCurWord.zh, 'word'); // skipped = failed to learn it this time
   dailyState.wordIdx++;
   saveDailyState(dailyState);
   loadDailyWord();
@@ -3726,7 +3921,7 @@ function dlSkipWord() {
 //  just confusing traps rather than useful checks.
 // ─────────────────────────────────────────────
 let curDq = null, curDqQ = null;
-let dqWrongCount = 0, dqAnsweredThisQuestion = false, dqDrillRemaining = 0;
+let dqWrongCount = 0, dqAnsweredThisQuestion = false, dqDrillRemaining = 0, dqDrillTotal = 5;
 let dqRecorder = null, dqRecordedChunks = [];
 
 const DQ_TYPE_WEIGHTS = { spell: 0.55, record: 0.2, meaning: 0.25 };
@@ -3820,6 +4015,7 @@ function answerDailyQuizChoice(el, isOk) {
     dailyState.mistakes.push({
       word: curDq.word, zh: curDq.zh, dim: curDqQ.dim, sub: curDqQ.sub, ts: Date.now()
     });
+    addToWrongBook(curDq.word, curDq.zh, curDqQ.dim);
   }
   document.querySelectorAll('#dq-opts .opt').forEach(o => { o.onclick = null; });
   el.classList.add(isOk ? 'ok' : 'no');
@@ -3830,7 +4026,17 @@ function answerDailyQuizChoice(el, isOk) {
   }
   saveDailyState(dailyState);
   document.getElementById('dq-streak').textContent = '🔥 ' + dailyState.quiz.streak;
-  setTimeout(nextDailyQuizQuestion, 1100);
+  if (isOk) {
+    setTimeout(nextDailyQuizQuestion, 1100);
+  } else {
+    // Immediate reinforcement: don't move on — copy the word out first.
+    // Words that keep landing in the wrong book get the longer 10x drill.
+    const repeatOffender = (getWrongBook()[curDq.word]?.count || 0) >= 3;
+    setTimeout(() => startDqWriteDrill(
+      repeatOffender ? 10 : 5,
+      repeatOffender ? '这个词老是出错哦 —— 认真写 10 遍' : null
+    ), 1400);
+  }
 }
 
 // ── Spelling: type from the Chinese meaning, Enter to submit ───────────────
@@ -3877,25 +4083,33 @@ function dqSpellKeydown(e) {
     dqWrongCount++;
     playWrongSound();
     dailyState.mistakes.push({ word: curDq.word, zh: curDq.zh, dim: 'word', sub: '拼写', ts: Date.now() });
+    if (dqWrongCount === 1) addToWrongBook(curDq.word, curDq.zh, 'word'); // once per question, not per retry
     saveDailyState(dailyState);
     document.getElementById('dq-spell-wrongcount').textContent = `已错 ${dqWrongCount} 次`;
-    if (dqWrongCount > 3) {
-      startDqWriteDrill();
+    if (dqWrongCount >= 3) {
+      startDqWriteDrill(5, '拼不出来没关系 —— 看着正确拼写，照着写 5 遍');
     } else {
       inp.value = '';
     }
   }
 }
 
-// ── Write drill: too many wrong spelling submits → write it out 5 times ────
-function startDqWriteDrill() {
-  document.getElementById('dq-spell-stage').style.display = 'none';
+// ── Write drill: the immediate-reinforcement step. The correct spelling is
+// shown (and spoken) the whole time — this is deliberate copying practice,
+// not another recall test. Reps configurable (5 for a normal miss, 10 for
+// words that keep coming back wrong).
+function startDqWriteDrill(reps, title) {
+  hideAllDqStages();
   document.getElementById('dq-drill-stage').style.display = '';
-  dqDrillRemaining = 5;
+  dqDrillTotal = reps || 5;
+  dqDrillRemaining = dqDrillTotal;
+  document.getElementById('dq-drill-title').textContent = title || `来巩固一下 —— 照着写 ${dqDrillTotal} 遍`;
+  document.getElementById('dq-drill-word').textContent = curDq.word;
   document.getElementById('dq-drill-prompt').textContent = curDq.zh;
-  document.getElementById('dq-drill-progress').textContent = '第 1 / 5 遍';
+  document.getElementById('dq-drill-progress').textContent = `第 1 / ${dqDrillTotal} 遍`;
   const inp = document.getElementById('dq-drill-input');
   inp.value = ''; inp.className = 'type-input'; inp.disabled = false; inp.focus();
+  speakWord(curDq.word);
 }
 
 function dqDrillKeydown(e) {
@@ -3906,11 +4120,12 @@ function dqDrillKeydown(e) {
     dqDrillRemaining--;
     inp.className = 'type-input good';
     if (dqDrillRemaining <= 0) {
+      markWrongBookDrilled(curDq.word);
       showCelebration('写完啦，真棒！');
       speakWord(curDq.word);
       setTimeout(nextDailyQuizQuestion, 1000);
     } else {
-      document.getElementById('dq-drill-progress').textContent = `第 ${5 - dqDrillRemaining + 1} / 5 遍`;
+      document.getElementById('dq-drill-progress').textContent = `第 ${dqDrillTotal - dqDrillRemaining + 1} / ${dqDrillTotal} 遍`;
       inp.value = '';
       inp.className = 'type-input';
       inp.focus();
