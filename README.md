@@ -93,20 +93,25 @@ it's personal practice data, not project source.
 The app is fully local, so it works with the internet cut off. To stop a
 child from looking up answers mid-quiz:
 
-- **`tools/study-mode-on.bat`** (run as parent; auto-elevates) — adds
-  Windows Firewall rules blocking every installed browser's internet
+- **`tools/study-mode-setpass.bat`** — one-time setup: set the management
+  password (changing it later requires the current password). Stored as a
+  salted hash in `%ProgramData%\Type2Memory`, outside the repo.
+- **`tools/study-mode-on.bat`** — no password needed; anyone can lock.
+  Adds Windows Firewall rules blocking every installed browser's internet
   access (localhost is unaffected), makes sure the server is running, and
   opens the app fullscreen in Chrome kiosk mode.
-- **`tools/study-mode-off.bat`** — removes those rules, restoring normal
-  browsing.
+- **`tools/study-mode-off.bat`** — asks for the management password, then
+  removes the rules and restores normal browsing.
 
 The app also detects tab/window switches during an active quiz question:
 the question is immediately scored wrong (looking up the answer is
 pointless), the word is queued for the round review, and the number of
 leaves is shown on the daily results screen for the parent.
 
-Note: this assumes the child's Windows account is not an administrator —
-an admin can delete firewall rules.
+Note: the password gates the easy path (the off script). A child whose
+Windows account has administrator rights could still remove the firewall
+rules manually via Windows Defender Firewall settings — making their
+account a standard user is the only hard guarantee.
 
 ## Adding new words
 
