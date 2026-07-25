@@ -876,16 +876,18 @@
       text-decoration: underline; text-align: center; cursor: pointer;
     }
     .studymode-bar {
-      display: flex; flex-wrap: wrap; gap: 10px; justify-content: center;
-      align-items: center; width: min(440px, 92%); margin: 6px auto 4px;
+      width: min(460px, 92%); margin: 6px auto 4px;
+    }
+    .studymode-buttons {
+      display: flex; gap: 10px; justify-content: center;
     }
     .studymode-btn {
-      border: none; border-radius: 999px; padding: 9px 18px;
-      font-size: .85rem; font-weight: 700; cursor: pointer;
+      flex: 1; border: none; border-radius: 999px; padding: 10px 8px;
+      font-size: .85rem; font-weight: 700; cursor: pointer; white-space: nowrap;
     }
     .studymode-btn.lock   { background: var(--cyan); color: #fff; }
     .studymode-btn.unlock { background: var(--surface); color: var(--muted); border: 1px solid var(--border); }
-    .studymode-status { width: 100%; text-align: center; font-size: .8rem; color: var(--muted); min-height: 1.1em; }
+    .studymode-status { text-align: center; font-size: .8rem; color: var(--muted); min-height: 1.1em; margin-top: 8px; }
     .studymode-status.on { color: var(--green); font-weight: 700; }
     .daily-card-cta {
       text-align: center;
@@ -959,6 +961,23 @@
     .dr-word-chip.miss { border-color: var(--red); background: rgba(193,82,63,.06); }
     .dr-word-chip.skip { border-color: var(--magenta); background: rgba(201,123,61,.08); }
     .dr-words-legend { font-size: .75rem; color: var(--muted); text-align: center; margin-top: 8px; }
+
+    /* Today copy-review */
+    #s-today-review { justify-content: flex-start; padding-top: 40px; }
+    .tr-progress { font-size: .9rem; color: var(--muted); font-weight: 700; margin-bottom: 16px; }
+    .tr-hint {
+      margin-bottom: 18px; min-height: 1.6em; cursor: default;
+      border: 1px dashed var(--border); border-radius: 999px; padding: 6px 16px;
+    }
+    .tr-hint-label { font-size: .82rem; color: var(--muted); }
+    .tr-hint-word {
+      display: none; font-family: ui-monospace, 'Cascadia Code', Consolas, monospace;
+      font-weight: 700; font-size: 1.1rem; color: var(--cyan); letter-spacing: .05em;
+    }
+    .tr-hint:hover .tr-hint-label { display: none; }
+    .tr-hint:hover .tr-hint-word { display: inline; }
+    .tr-masked { -webkit-text-security: disc; text-security: disc; width: min(420px, 90%); text-align: center; }
+    .tr-note { margin-top: 14px; font-size: .78rem; color: var(--muted); }
     .dl-spell-prompt { font-size: clamp(1.8rem, 6vw, 3rem); margin-bottom: 16px; }
     .dl-record-btn {
       background: var(--surface); border: 1px solid var(--red);
@@ -1230,14 +1249,16 @@
     </div>
     <div class="daily-card-cta" id="daily-card-cta">▶ 开始今日学习</div>
     <div class="daily-card-review" id="daily-card-review" style="display:none"
-      onclick="event.stopPropagation(); reviewDailyResults()">📋 查看今日学习回顾</div>
+      onclick="event.stopPropagation(); startTodayCopyReview()">✍️ 抄写复习今天的单词</div>
   </div>
 
   <div class="studymode-bar">
-    <button class="studymode-btn lock" id="studymode-on-btn"
-      onclick="startStudyLockdown()">🔒 开始学习（断网 + 全屏）</button>
-    <button class="studymode-btn unlock" id="studymode-off-btn"
-      onclick="endStudyLockdown()">🔓 结束学习模式（家长）</button>
+    <div class="studymode-buttons">
+      <button class="studymode-btn lock" id="studymode-on-btn"
+        onclick="startStudyLockdown()">🔒 开始学习（断网）</button>
+      <button class="studymode-btn unlock" id="studymode-off-btn"
+        onclick="endStudyLockdown()">🔓 结束学习（家长）</button>
+    </div>
     <div class="studymode-status" id="studymode-status"></div>
   </div>
 
@@ -1463,6 +1484,28 @@
   </div>
 
   <button class="btn" onclick="goVocabHome()">返回 · BACK</button>
+</div>
+
+<!-- ══ TODAY COPY REVIEW ══ -->
+<div class="screen" id="s-today-review">
+  <button class="home-btn" onclick="goVocabHome()">← 返回</button>
+  <div class="logo" style="font-size:clamp(1.8rem,5vw,3rem)">抄写复习</div>
+  <div class="tagline">看中文 · 凭记忆拼写 · 每词五遍</div>
+  <div class="divider"></div>
+
+  <div class="tr-progress" id="tr-progress">第 1 / 15 个词 · 第 1 / 5 遍</div>
+  <div class="zh-prompt dl-spell-prompt" id="tr-zh"></div>
+
+  <div class="tr-hint" id="tr-hint">
+    <span class="tr-hint-label">🖱️ 不确定？把鼠标移到这里看单词</span>
+    <span class="tr-hint-word" id="tr-hint-word"></span>
+  </div>
+
+  <input class="type-input tr-masked" id="tr-input" type="text" autocomplete="off"
+    autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="输入后按回车…"
+    onpaste="return false" ondrop="return false" oncopy="return false" oncut="return false"
+    onkeydown="trKeydown(event)">
+  <div class="tr-note">输入时看不到字母，全凭记忆拼；打对一次算一遍</div>
 </div>
 
 <!-- ══ FLASHCARD ══ -->
@@ -3773,12 +3816,9 @@ function updateDailyCardUI() {
   if (countEl) countEl.textContent = learnedCount + ' / ' + s.wordList.length + ' 新词';
   const remainMin = Math.max(0, Math.round((DAILY_TOTAL_MS - s.elapsedMs) / 60000));
   if (timeEl) timeEl.textContent = s.phase === 'done' ? '今日已完成' : remainMin + ' 分钟剩余';
-  if (ctaEl)  ctaEl.textContent = s.phase === 'done' ? '✓ 今日已完成，查看今日回顾' : '▶ 继续今日学习';
-  if (reviewEl) {
-    const n = (s.mistakes || []).length;
-    reviewEl.style.display = '';
-    reviewEl.textContent = n ? `📋 查看今日学习回顾（错题 ${n}）` : '📋 查看今日学习回顾';
-  }
+  if (ctaEl)  ctaEl.textContent = s.phase === 'done' ? '✓ 今日已完成，查看学习数据' : '▶ 继续今日学习';
+  // Copy-writing review of today's words — available once a session exists.
+  if (reviewEl) reviewEl.style.display = s.wordList && s.wordList.length ? '' : 'none';
 }
 
 // ── Study-mode lockdown (in-app) ───────────────────────────────────────────
@@ -3800,7 +3840,7 @@ async function refreshStudyModeStatus() {
     const { blocked } = await res.json();
     setStudyStatus(
       blocked ? '🔒 学习模式开启中：浏览器已断网（本练习不受影响）'
-              : '未开启 · 点左边按钮断网进入专注学习',
+              : '未开启 · 点「开始学习（断网）」进入专注模式',
       blocked);
   } catch {
     setStudyStatus('');
@@ -3832,6 +3872,68 @@ async function endStudyLockdown() {
     setTimeout(refreshStudyModeStatus, 3500);
   } catch {
     alert('无法连接本地服务，请确认服务器在运行。');
+  }
+}
+
+// ── Today's copy-writing review ────────────────────────────────────────────
+// Reviews today's words by copying each one 5 times: the Chinese meaning is
+// shown, the English is hidden (hover the hint pill to peek), and the input
+// is masked so the child can't see what they type — forcing them to recall
+// the spelling rather than eyeball it.
+const TR_REPS = 5;
+let trQueue = [], trWordIdx = 0, trRep = 0;
+
+function startTodayCopyReview() {
+  const s = getDailyState();
+  if (!s || !s.wordList || !s.wordList.length) { alert('今天还没有开始学习计划哦'); return; }
+  trQueue = s.wordList.map(w => words.find(x => x.word === w)).filter(Boolean);
+  if (!trQueue.length) { alert('没有可复习的单词'); return; }
+  trWordIdx = 0; trRep = 0;
+  show('s-today-review');
+  loadTrWord();
+}
+
+function updateTrProgress() {
+  document.getElementById('tr-progress').textContent =
+    `第 ${trWordIdx + 1} / ${trQueue.length} 个词 · 第 ${trRep + 1} / ${TR_REPS} 遍`;
+}
+
+function loadTrWord() {
+  if (trWordIdx >= trQueue.length) {
+    showCelebration('今天的单词都复习完啦！');
+    setTimeout(goVocabHome, 1300);
+    return;
+  }
+  const w = trQueue[trWordIdx];
+  document.getElementById('tr-zh').textContent = w.zh;
+  document.getElementById('tr-hint-word').textContent = w.word;
+  updateTrProgress();
+  const inp = document.getElementById('tr-input');
+  inp.value = ''; inp.className = 'type-input tr-masked'; inp.disabled = false; inp.focus();
+  speakWord(w.word);
+}
+
+function trKeydown(e) {
+  if (e.key !== 'Enter') return;
+  const inp = document.getElementById('tr-input');
+  const w = trQueue[trWordIdx];
+  if (inp.value.trim() === w.word) {
+    trRep++;
+    inp.className = 'type-input tr-masked good';
+    if (trRep >= TR_REPS) {
+      trRep = 0; trWordIdx++;
+      showCelebration('这个词写好啦！');
+      speakWord(w.word);
+      setTimeout(loadTrWord, 800);
+    } else {
+      updateTrProgress();
+      inp.value = '';
+      setTimeout(() => { inp.className = 'type-input tr-masked'; inp.focus(); }, 150);
+    }
+  } else {
+    inp.className = 'type-input tr-masked fail';
+    playWrongSound();
+    inp.value = '';
   }
 }
 
