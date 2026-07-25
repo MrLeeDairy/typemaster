@@ -2120,10 +2120,10 @@ async function init() {
   });
 
   window.addEventListener('blur', handleStudyLeave);
-  window.addEventListener('focus', handleStudyReturn);
+  window.addEventListener('focus', () => { handleStudyReturn(); refreshStudyModeStatus(); });
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') handleStudyLeave();
-    else handleStudyReturn();
+    else { handleStudyReturn(); refreshStudyModeStatus(); }
   });
 
   await loadRemoteCache(); // must resolve before anything reads mastery/vocab/history/daily data
@@ -3847,11 +3847,26 @@ async function refreshStudyModeStatus() {
   }
 }
 
+// The block is applied asynchronously by an elevated child process only AFTER
+// the parent approves the UAC dialog (which can take several seconds), so a
+// single refresh often races ahead of the rules appearing. Poll for a while
+// so the status catches up on its own.
+let studyPollTimer = null;
+function pollStudyModeStatus(times) {
+  clearInterval(studyPollTimer);
+  let n = times || 10;
+  refreshStudyModeStatus();
+  studyPollTimer = setInterval(() => {
+    refreshStudyModeStatus();
+    if (--n <= 0) clearInterval(studyPollTimer);
+  }, 2000);
+}
+
 function startStudyLockdown() {
   const el = document.documentElement;
   if (el.requestFullscreen) el.requestFullscreen().catch(() => {});
   fetch('/api/studymode/on', { method: 'POST' })
-    .then(() => { setTimeout(refreshStudyModeStatus, 3500); })
+    .then(() => pollStudyModeStatus(10))
     .catch(() => {});
   setStudyStatus('正在断网…请在弹出的 Windows 提示框中点「是」');
   startOrResumeDaily();
@@ -3869,7 +3884,7 @@ async function endStudyLockdown() {
     if (res.status === 403) { alert('密码错误，学习模式保持开启。'); return; }
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
     setStudyStatus('正在恢复上网…请在弹出的 Windows 提示框中点「是」');
-    setTimeout(refreshStudyModeStatus, 3500);
+    pollStudyModeStatus(10);
   } catch {
     alert('无法连接本地服务，请确认服务器在运行。');
   }
