@@ -3793,17 +3793,16 @@ function setStudyStatus(text, on) {
 }
 
 async function refreshStudyModeStatus() {
-  const onBtn  = document.getElementById('studymode-on-btn');
-  const offBtn = document.getElementById('studymode-off-btn');
+  // Both buttons stay visible so the parent can always find the unlock
+  // control; the status line reflects whether the block is currently on.
   try {
     const res = await fetch('/api/studymode/status');
     const { blocked } = await res.json();
-    if (onBtn)  onBtn.style.display  = blocked ? 'none' : '';
-    if (offBtn) offBtn.style.display = blocked ? '' : 'none';
-    setStudyStatus(blocked ? '🔒 学习模式开启中：浏览器已断网（本练习不受影响）' : '', blocked);
+    setStudyStatus(
+      blocked ? '🔒 学习模式开启中：浏览器已断网（本练习不受影响）'
+              : '未开启 · 点左边按钮断网进入专注学习',
+      blocked);
   } catch {
-    // Backend unreachable (e.g. opened as a file) — hide the unlock button.
-    if (offBtn) offBtn.style.display = 'none';
     setStudyStatus('');
   }
 }
