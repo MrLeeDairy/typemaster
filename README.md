@@ -90,8 +90,18 @@ it's personal practice data, not project source.
 
 ## Study mode (focus lockdown)
 
-The app is fully local, so it works with the internet cut off. To stop a
-child from looking up answers mid-quiz:
+The app is fully local, so it works with the internet cut off.
+
+**From inside the app (easiest):** on the vocabulary home there's a
+**🔒 开始学习（断网 + 全屏）** button. It goes fullscreen, starts the daily
+plan, and asks the backend to block every browser's internet via the
+firewall — Windows shows one administrator (UAC) prompt to approve. To
+finish, **🔓 结束学习模式（家长）** asks for the parent password and restores
+browsing (another UAC prompt). Set the password first with
+`tools/study-mode-setpass.bat`.
+
+**From the desktop (alternative):** the same thing without the in-app
+button:
 
 - **`tools/study-mode-setpass.bat`** — one-time setup: set the management
   password (changing it later requires the current password). Stored as a

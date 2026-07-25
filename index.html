@@ -378,7 +378,7 @@
       font-size: .82rem; color: var(--muted);
       letter-spacing: .2em; text-transform: uppercase; margin-top: 8px;
     }
-    #s-res { justify-content: flex-start; padding-top: 36px; }
+    #s-res, #s-daily-res { justify-content: flex-start; padding-top: 36px; }
 
     .res-section-title {
       font-size: .86rem; letter-spacing: .3em; text-transform: uppercase;
@@ -875,6 +875,18 @@
       margin-top: 10px; font-size: .82rem; color: var(--cyan);
       text-decoration: underline; text-align: center; cursor: pointer;
     }
+    .studymode-bar {
+      display: flex; flex-wrap: wrap; gap: 10px; justify-content: center;
+      align-items: center; width: min(440px, 92%); margin: 6px auto 4px;
+    }
+    .studymode-btn {
+      border: none; border-radius: 999px; padding: 9px 18px;
+      font-size: .85rem; font-weight: 700; cursor: pointer;
+    }
+    .studymode-btn.lock   { background: var(--cyan); color: #fff; }
+    .studymode-btn.unlock { background: var(--surface); color: var(--muted); border: 1px solid var(--border); }
+    .studymode-status { width: 100%; text-align: center; font-size: .8rem; color: var(--muted); min-height: 1.1em; }
+    .studymode-status.on { color: var(--green); font-weight: 700; }
     .daily-card-cta {
       text-align: center;
       font-size: 1rem; font-weight: 700; color: var(--cyan);
@@ -1219,6 +1231,14 @@
     <div class="daily-card-cta" id="daily-card-cta">▶ 开始今日学习</div>
     <div class="daily-card-review" id="daily-card-review" style="display:none"
       onclick="event.stopPropagation(); reviewDailyResults()">📋 查看今日学习回顾</div>
+  </div>
+
+  <div class="studymode-bar">
+    <button class="studymode-btn lock" id="studymode-on-btn"
+      onclick="startStudyLockdown()">🔒 开始学习（断网 + 全屏）</button>
+    <button class="studymode-btn unlock" id="studymode-off-btn"
+      onclick="endStudyLockdown()">🔓 结束学习模式（家长）</button>
+    <div class="studymode-status" id="studymode-status"></div>
   </div>
 
   <div class="free-practice-label">自由练习</div>
@@ -2069,6 +2089,7 @@ async function init() {
   updateMilestoneUI();
   updateDailyCardUI();
   updateWbBadge();
+  refreshStudyModeStatus();
 }
 
 // ─────────────────────────────────────────────
@@ -2136,6 +2157,7 @@ function goVocabHome() {
   updateMilestoneUI();
   updateDailyCardUI();
   updateWbBadge();
+  refreshStudyModeStatus();
 }
 
 // ─────────────────────────────────────────────
@@ -3751,7 +3773,7 @@ function updateDailyCardUI() {
   if (countEl) countEl.textContent = learnedCount + ' / ' + s.wordList.length + ' 新词';
   const remainMin = Math.max(0, Math.round((DAILY_TOTAL_MS - s.elapsedMs) / 60000));
   if (timeEl) timeEl.textContent = s.phase === 'done' ? '今日已完成' : remainMin + ' 分钟剩余';
-  if (ctaEl)  ctaEl.textContent = s.phase === 'done' ? '✓ 今日已完成，来复习一下？' : '▶ 继续今日学习';
+  if (ctaEl)  ctaEl.textContent = s.phase === 'done' ? '✓ 今日已完成，查看今日回顾' : '▶ 继续今日学习';
   if (reviewEl) {
     const n = (s.mistakes || []).length;
     reviewEl.style.display = '';
@@ -3759,10 +3781,68 @@ function updateDailyCardUI() {
   }
 }
 
+// ── Study-mode lockdown (in-app) ───────────────────────────────────────────
+// The browser can't touch the OS firewall itself; these call the local
+// backend, which spawns an elevated PowerShell (one UAC prompt) to add/remove
+// the firewall block. Unblocking asks for the parent password.
+function setStudyStatus(text, on) {
+  const el = document.getElementById('studymode-status');
+  if (!el) return;
+  el.textContent = text || '';
+  el.classList.toggle('on', !!on);
+}
+
+async function refreshStudyModeStatus() {
+  const onBtn  = document.getElementById('studymode-on-btn');
+  const offBtn = document.getElementById('studymode-off-btn');
+  try {
+    const res = await fetch('/api/studymode/status');
+    const { blocked } = await res.json();
+    if (onBtn)  onBtn.style.display  = blocked ? 'none' : '';
+    if (offBtn) offBtn.style.display = blocked ? '' : 'none';
+    setStudyStatus(blocked ? '🔒 学习模式开启中：浏览器已断网（本练习不受影响）' : '', blocked);
+  } catch {
+    // Backend unreachable (e.g. opened as a file) — hide the unlock button.
+    if (offBtn) offBtn.style.display = 'none';
+    setStudyStatus('');
+  }
+}
+
+function startStudyLockdown() {
+  const el = document.documentElement;
+  if (el.requestFullscreen) el.requestFullscreen().catch(() => {});
+  fetch('/api/studymode/on', { method: 'POST' })
+    .then(() => { setTimeout(refreshStudyModeStatus, 3500); })
+    .catch(() => {});
+  setStudyStatus('正在断网…请在弹出的 Windows 提示框中点「是」');
+  startOrResumeDaily();
+}
+
+async function endStudyLockdown() {
+  const pw = prompt('请输入家长管理密码，结束学习模式并恢复上网：');
+  if (pw === null) return;
+  try {
+    const res = await fetch('/api/studymode/off', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: pw })
+    });
+    if (res.status === 403) { alert('密码错误，学习模式保持开启。'); return; }
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    setStudyStatus('正在恢复上网…请在弹出的 Windows 提示框中点「是」');
+    setTimeout(refreshStudyModeStatus, 3500);
+  } catch {
+    alert('无法连接本地服务，请确认服务器在运行。');
+  }
+}
+
 function startOrResumeDaily() {
   dailyState = getDailyState() || createDailyState();
   if (dailyState.phase === 'done') {
-    startFlash(); // today's goal is done — fall back to free review
+    // Today's plan is finished — show the recap of TODAY'S words, not a
+    // fresh random draw. (Free random flashcards live on the 自由练习 card.)
+    renderDailyResults();
+    show('s-daily-res');
     return;
   }
   dailyManuallyPaused = false;
