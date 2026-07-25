@@ -1318,7 +1318,7 @@
 
     <div class="fc-back" id="dl-detail" style="display:none">
       <div class="fc-zh" id="dl-zh"></div>
-      <div class="fc-example-row">
+      <div class="fc-example-row" id="dl-example-row">
         <button class="speak-btn speak-btn-sm" id="dl-sentence-speak" onclick="speakSentence(dailySentence.en, 'dl-sentence-speak')">🔊</button>
         <div class="fc-example-text">
           <div class="fc-example" id="dl-example"></div>
@@ -1523,7 +1523,7 @@
 
     <div class="fc-back" id="fc-back" style="display:none">
       <div class="fc-zh" id="fc-zh"></div>
-      <div class="fc-example-row">
+      <div class="fc-example-row" id="fc-example-row">
         <button class="speak-btn speak-btn-sm" id="fc-sentence-speak" onclick="speakSentence(curFlashSentence.en, 'fc-sentence-speak')">🔊</button>
         <div class="fc-example-text">
           <div class="fc-example" id="fc-example"></div>
@@ -2047,18 +2047,16 @@ const TPL_ZH = {
   ]
 };
 
-// Builds an {en, zh} sentence pair for a word, picking the template index
-// once so the two languages stay in sync. Curated EXAMPLES/EXAMPLES_ZH win
-// when present; otherwise falls back to the generic TPL/TPL_ZH templates.
+// Returns a real, curated example sentence for a word, or a "not curated"
+// marker. The old generic TPL/TPL_ZH templates produced grammatically broken
+// or illogical sentences for the ~3000 imported words (verbs/adverbs/phrases
+// forced into noun frames, abstract nouns in concrete frames), so we no longer
+// fabricate sentences: callers must handle the uncurated case (hide the
+// example, fall back to word practice, etc.).
 function buildSentencePair(wo) {
   const ex = EXAMPLES[wo.word];
-  if (ex) return { en: ex, zh: EXAMPLES_ZH[wo.word] || '' };
-  const pool   = TPL[wo.pos]    || TPL.noun;
-  const poolZh = TPL_ZH[wo.pos] || TPL_ZH.noun;
-  const i  = Math.floor(Math.random() * pool.length);
-  const en = pool[i].replace('{w}', wo.word);
-  const zh = (poolZh[i] || '').replace('{w}', wo.zh);
-  return { en, zh };
+  if (ex) return { en: ex, zh: EXAMPLES_ZH[wo.word] || '', curated: true };
+  return { en: '', zh: '', curated: false };
 }
 
 function makeSentence(wo) {
@@ -2232,7 +2230,15 @@ function nextWord() {
 
   if (effectiveMode === 'sentence') {
     curSentencePair = buildSentencePair(curWord);
-    target = curSentencePair.en;
+    if (curSentencePair.curated) {
+      target = curSentencePair.en;
+    } else {
+      // No real example sentence for this word — practice the word itself
+      // rather than type a fabricated (often wrong) sentence.
+      effectiveMode = 'word';
+      curSentencePair = null;
+      target = curWord.word;
+    }
   } else {
     curSentencePair = null;
     target = curWord.word;
@@ -3366,9 +3372,15 @@ function nextFlashCard() {
   document.getElementById('fc-pos').textContent  = curFlashWord.pos || '';
   document.getElementById('fc-word').textContent = curFlashWord.word;
   document.getElementById('fc-zh').textContent   = curFlashWord.zh;
-  document.getElementById('fc-example').textContent    = curFlashSentence.en;
-  buildWordBreakdown(curFlashSentence.en, 'fc-word-breakdown', curFlashWord.word);
-  document.getElementById('fc-example-zh').textContent = curFlashSentence.zh;
+  const fcExRow = document.getElementById('fc-example-row');
+  if (curFlashSentence.curated) {
+    fcExRow.style.display = '';
+    document.getElementById('fc-example').textContent    = curFlashSentence.en;
+    buildWordBreakdown(curFlashSentence.en, 'fc-word-breakdown', curFlashWord.word);
+    document.getElementById('fc-example-zh').textContent = curFlashSentence.zh;
+  } else {
+    fcExRow.style.display = 'none';
+  }
 
   const fam   = getFamily(curFlashWord.word);
   const famEl = document.getElementById('fc-family');
@@ -3474,7 +3486,11 @@ function vqListenQuestion(w) {
 }
 
 function vqClozeQuestion(w) {
-  const sentence = makeSentence(w);
+  const pair = buildSentencePair(w);
+  // No real example sentence → a cloze would just blank out a fabricated
+  // sentence, so ask the meaning instead.
+  if (!pair.curated) return vqMeaningQuestion(w);
+  const sentence = pair.en;
   const escaped  = w.word.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
   const blanked  = sentence.replace(new RegExp(escaped, 'i'), '_____');
   const distractors = words.filter(x => x.word !== w.word)
@@ -4010,9 +4026,15 @@ function loadDailyWord() {
   document.getElementById('dl-pos').textContent  = dailyCurWord.pos || '';
   document.getElementById('dl-word').textContent = dailyCurWord.word;
   document.getElementById('dl-zh').textContent   = dailyCurWord.zh;
-  document.getElementById('dl-example').textContent = dailySentence.en;
-  buildWordBreakdown(dailySentence.en, 'dl-word-breakdown', dailyCurWord.word);
-  document.getElementById('dl-example-zh').textContent = dailySentence.zh;
+  const dlExRow = document.getElementById('dl-example-row');
+  if (dailySentence.curated) {
+    dlExRow.style.display = '';
+    document.getElementById('dl-example').textContent = dailySentence.en;
+    buildWordBreakdown(dailySentence.en, 'dl-word-breakdown', dailyCurWord.word);
+    document.getElementById('dl-example-zh').textContent = dailySentence.zh;
+  } else {
+    dlExRow.style.display = 'none';
+  }
 
   const fam   = getFamily(dailyCurWord.word);
   const famEl = document.getElementById('dl-family');
@@ -4208,7 +4230,8 @@ function dlWordReady() {
   document.getElementById('dl-meaning-stage').style.display = 'none';
   document.getElementById('dl-detail').style.display = '';
   document.getElementById('dl-next-btn').style.display = '';
-  speakSentence(dailySentence.en, 'dl-sentence-speak');
+  if (dailySentence.curated) speakSentence(dailySentence.en, 'dl-sentence-speak');
+  else speakWord(dailyCurWord.word);
 }
 
 function dlNextWord() {
