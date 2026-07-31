@@ -16,12 +16,14 @@ const DATA_FILE = path.join(DATA_DIR, 'store.json');
 //   vocab     -> typemaster_vocab_v1    (flashcard rating / times shown)
 //   daily     -> typemaster_daily_v1    (today's daily-plan session state)
 //   wrongbook -> (no legacy key)        (cumulative cross-day mistake book)
+//   dailylog  -> (no legacy key)        (per-date archive of daily word lists)
 const DEFAULTS = {
   history: [],
   mastery: {},
   vocab: {},
   daily: null,
-  wrongbook: {}
+  wrongbook: {},
+  dailylog: {}
 };
 
 const ALLOWED_KEYS = Object.keys(DEFAULTS);
