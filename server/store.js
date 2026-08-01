@@ -17,13 +17,15 @@ const DATA_FILE = path.join(DATA_DIR, 'store.json');
 //   daily     -> typemaster_daily_v1    (today's daily-plan session state)
 //   wrongbook -> (no legacy key)        (cumulative cross-day mistake book)
 //   dailylog  -> (no legacy key)        (per-date archive of daily word lists)
+//   wordtest  -> (no legacy key)        (flashcard-test progress: streak/graduation)
 const DEFAULTS = {
   history: [],
   mastery: {},
   vocab: {},
   daily: null,
   wrongbook: {},
-  dailylog: {}
+  dailylog: {},
+  wordtest: {}
 };
 
 const ALLOWED_KEYS = Object.keys(DEFAULTS);
