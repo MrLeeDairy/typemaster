@@ -3,6 +3,7 @@ const path = require('path');
 const store = require('./store');
 const studymode = require('./studymode');
 const dailylog = require('./dailylog');
+const wordtest = require('./wordtest');
 
 const app = express();
 const PORT = process.env.PORT || 3210;
@@ -11,6 +12,7 @@ app.use(express.json({ limit: '2mb' }));
 
 studymode.register(app);
 dailylog.register(app, store);
+wordtest.register(app, store);
 
 // Only expose the frontend entry point and its assets — not the server
 // source, package.json, or the data file — over HTTP.
